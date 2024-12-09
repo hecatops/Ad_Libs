@@ -306,11 +306,11 @@ def update_dashboard(n, light_theme_btn, dark_theme_btn):
 
     df = pd.DataFrame(ad_data)
     
-    rpc = f"${df['RPC'].mean():,.2f}"
+    rpc = f"${df['RPC'].mean():.2f}"
     avg_ctr = f"{df['CTR'].mean():.2f}%"
     avg_cpc = f"${df['CPC'].mean():.2f}"
     common_peak = df['Period'].mode()[0]
-    avg_cpa = f"${df['CPA'].mean():,.2f}"
+    avg_cpa = f"${df['CPA'].mean():.2f}"
 
     rpc_kpi = format_kpi_value(rpc, previous_kpis['rpc'], prefix='$')
     ctr_kpi = format_kpi_value(avg_ctr, previous_kpis['ctr'], suffix='%')

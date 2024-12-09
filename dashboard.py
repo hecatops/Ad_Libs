@@ -254,7 +254,7 @@ app.layout = html.Div([
 
     dcc.Interval(
         id='update-interval',
-        interval=30000,  
+        interval=300000,  
         n_intervals=0
     )
 ], id='main-container', className="container-fluid")

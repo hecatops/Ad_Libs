@@ -11,6 +11,7 @@ import threading
 import numpy as np
 
 app = dash.Dash(__name__, external_stylesheets=['https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css'])
+server = app.server
 app.title = "Ad-Libs"
 
 current_theme = 'dark'

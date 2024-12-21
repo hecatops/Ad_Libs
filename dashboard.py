@@ -73,11 +73,11 @@ def format_kpi_value(current, previous, prefix='', suffix=''):
         is_increasing = pct_change > 0
         
         if prefix == '$':
-            arrow = ' ↑' if is_increasing else ' ↓'
-            color = '#FF5252' if is_increasing else '#4CAF50'
+            arrow = ' ▲' if is_increasing else ' ▼'
+            color = '#623440' if is_increasing else '#34623f'
         else:
-            arrow = ' ↑' if is_increasing else ' ↓'
-            color = '#4CAF50' if is_increasing else '#FF5252'
+            arrow = ' ▲' if is_increasing else ' ▼'
+            color = '#34623f' if is_increasing else '#623440'
     
     formatted_value = f"{prefix}{current:,.2f}{suffix}"
     
@@ -155,7 +155,7 @@ color_schemes = {
     'light': {
         'background': 'white',
         'text': 'black',
-        'card_bg': 'rgba(255, 255, 255, 0.8)',
+        'card_bg': '#0DCAF0',
         'card_text': 'black',
         'plot_bg': 'white',
         'paper_bg': 'white'
@@ -163,19 +163,17 @@ color_schemes = {
     'dark': {
         'background': '#1c1c1c',
         'text': 'white',
-        'card_bg': 'rgba(25, 25, 25, 0.8)',
-        'card_text': 'white',
+        'card_bg': '#0DCAF0',
+        'card_text': 'black',
         'plot_bg': '#1c1c1c',
         'paper_bg': '#1c1c1c'
     }
 }
 
 glass_effect_css = {
-    'background': 'rgba(255, 255, 255, 0.1)',
-    'border-radius': '20px',
-    'backdrop-filter': 'blur(10px)',
-    'padding': '15px',
-    'margin': '5px'
+    'background': '#44a1a0',
+    'border-radius': '5px',
+    
 }
 
 app.layout = html.Div([
@@ -258,7 +256,7 @@ app.layout = html.Div([
                     html.Button(
                         "Download Report",
                         id='download-report-btn',
-                        className="btn btn-primary btn-lg"
+                        className="btn btn-info btn-lg"
                     ),
                     dcc.Download(id='download-report')
                 ], className="text-center mb-4")
@@ -302,7 +300,7 @@ app.layout = html.Div([
         dash.dependencies.Output('avg-ctr-card', 'style'),
         dash.dependencies.Output('avg-cpc-card', 'style'),
         dash.dependencies.Output('common-day-card', 'style'),
-        dash.dependencies.Output('avg-cpa-card', 'style')
+        dash.dependencies.Output('avg-cpa-card', 'style')        
     ],
     [
         dash.dependencies.Input('update-interval', 'n_intervals'),
@@ -359,7 +357,7 @@ def update_dashboard(n_interval, light_clicks, dark_clicks, download_clicks):
         go.Bar(
             x=df.groupby('AdType')['ROAS'].mean().index,
             y=df.groupby('AdType')['ROAS'].mean().values,
-            marker_color=px.colors.qualitative.Pastel
+            marker_color=px.colors.sequential.Tealgrn
         )
     ])
     
@@ -375,7 +373,7 @@ def update_dashboard(n_interval, light_clicks, dark_clicks, download_clicks):
         go.Pie(
             labels=df.groupby('Device')['CTR'].mean().index,
             values=df.groupby('Device')['CTR'].mean().values,
-            marker_colors=px.colors.qualitative.Pastel,
+            marker_colors=px.colors.sequential.Tealgrn,
             textinfo='label+percent'
         )
     ])
@@ -394,7 +392,7 @@ def update_dashboard(n_interval, light_clicks, dark_clicks, download_clicks):
         y=df['ConversionRate'],
         name='Conversion Rate',
         mode='lines+markers',
-        line=dict(color=px.colors.qualitative.Pastel[0])
+        line=dict(color=px.colors.sequential.Tealgrn[0])
     ))
     
     metrics_trend.add_trace(go.Scatter(
@@ -402,7 +400,7 @@ def update_dashboard(n_interval, light_clicks, dark_clicks, download_clicks):
         y=df['BounceRate'],
         name='Bounce Rate',
         mode='lines+markers',
-        line=dict(color=px.colors.qualitative.Pastel[1])
+        line=dict(color=px.colors.sequential.Tealgrn[1])
     ))
 
     metrics_trend.update_layout(
@@ -420,7 +418,7 @@ def update_dashboard(n_interval, light_clicks, dark_clicks, download_clicks):
         locations='Region',
         locationmode='country names',
         color='Clicks',
-        color_continuous_scale='Viridis',
+        color_continuous_scale='Tealgrn',
         projection='natural earth'
     )
 
@@ -442,7 +440,7 @@ def update_dashboard(n_interval, light_clicks, dark_clicks, download_clicks):
             x=df.groupby('Region')['Clicks'].sum().nlargest(5).values,
             y=df.groupby('Region')['Clicks'].sum().nlargest(5).index,
             orientation='h',
-            marker_color=px.colors.qualitative.Pastel[0]
+            marker_color=px.colors.sequential.Tealgrn[0]
         )
     ])
 
@@ -471,6 +469,7 @@ def update_dashboard(n_interval, light_clicks, dark_clicks, download_clicks):
         x=forecast['ds'][:len(df)],
         y=df['Revenue'],
         name='Historical Revenue',
+        line_color='rgba(0,100,80,0.5)',
         mode='lines+markers'
     ))
     
@@ -479,6 +478,7 @@ def update_dashboard(n_interval, light_clicks, dark_clicks, download_clicks):
         y=forecast['yhat'],
         name='Forecast',
         mode='lines',
+        line_color='rgba(0,150,0,0.8)',
         line=dict(dash='dot')
     ))
     

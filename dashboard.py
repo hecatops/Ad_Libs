@@ -4,17 +4,26 @@ from dash import ctx as dash_ctx
 import plotly.graph_objs as go
 import plotly.express as px
 import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
 import random
 from faker import Faker
 import time
 import threading
 import numpy as np
+from prophet import Prophet
+from datetime import datetime, timedelta
+import io
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import letter
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Image, Table, TableStyle
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 app = dash.Dash(__name__, external_stylesheets=['https://cdn.jsdelivr.net/npm/bootstrap@5.2.3/dist/css/bootstrap.min.css'])
 server = app.server
 app.title = "Ad-Libs"
 
-current_theme = 'dark'
+current_theme = 'light'
 fake = Faker()
 
 ad_types = ["Search", "Display", "Video", "Social Media", "Email"]
@@ -146,7 +155,6 @@ color_schemes = {
     'light': {
         'background': 'white',
         'text': 'black',
-
         'card_bg': 'rgba(255, 255, 255, 0.8)',
         'card_text': 'black',
         'plot_bg': 'white',
@@ -155,7 +163,7 @@ color_schemes = {
     'dark': {
         'background': '#1c1c1c',
         'text': 'white',
-        'card_bg': 'rgba(28, 28, 28, 0.8)',
+        'card_bg': 'rgba(25, 25, 25, 0.8)',
         'card_text': 'white',
         'plot_bg': '#1c1c1c',
         'paper_bg': '#1c1c1c'
@@ -221,35 +229,51 @@ app.layout = html.Div([
                     html.H2(id='common-peak', className="card-text"),
                 ], className="card-body", id='common-day-card', style=glass_effect_css)
             ], className="card text-center mb-3")
-        ], className="d-flex justify-content-around"),
+        ], className="d-flex justify-content-around flex-wrap"),
         
-    html.Div([
         html.Div([
             html.Div([
-                dcc.Graph(id='roas-by-type'),
-            ], className="col-md-6"),
+                html.Div([
+                    dcc.Graph(id='roas-by-type'),
+                ], className="col-md-6"),
+                
+                html.Div([
+                    dcc.Graph(id='ctr-by-device')
+                ], className="col-md-6"),
+            ], className="row mb-4"),
             
             html.Div([
-                dcc.Graph(id='ctr-by-device')
-            ], className="col-md-6"),
-        ], className="row mb-4"),
-        
-        html.Div([
+                html.Div([
+                    dcc.Graph(id='metrics-trend')
+                ], className="col-md-12")
+            ], className="row"),
+            
             html.Div([
-                dcc.Graph(id='metrics-trend')
-            ], className="col-md-12")
-        ], className="row"),
-        
-        html.Div([
+                html.Div([
+                    html.H4("Revenue Forecast", className="text-center"),
+                    dcc.Graph(id='forecast-plot')
+                ], className="col-md-12 mb-4"),
+                
+                html.Div([
+                    html.Button(
+                        "Download Report",
+                        id='download-report-btn',
+                        className="btn btn-primary btn-lg"
+                    ),
+                    dcc.Download(id='download-report')
+                ], className="text-center mb-4")
+            ], className="row"),
+
             html.Div([
-                html.H4("Clicks by Region", className="text-center"),
-                dcc.Graph(id='region-map')
-            ], className="col-md-8"),
-            html.Div([
-                dcc.Graph(id='top-countries')
-            ], className="col-md-4")
+                html.Div([
+                    html.H4("Clicks by Region", className="text-center"),
+                    dcc.Graph(id='region-map')
+                ], className="col-md-8"),
+                html.Div([
+                    dcc.Graph(id='top-countries')
+                ], className="col-md-4")
             ], className="row")
-    ], className="col-md-12")
+        ], className="col-md-12")
     ], className="container-fluid"),
 
     dcc.Interval(
@@ -266,13 +290,12 @@ app.layout = html.Div([
         dash.dependencies.Output('avg-cpc', 'children'),
         dash.dependencies.Output('common-peak', 'children'),
         dash.dependencies.Output('avg-cpa', 'children'),
-     
         dash.dependencies.Output('roas-by-type', 'figure'),
         dash.dependencies.Output('ctr-by-device', 'figure'),
         dash.dependencies.Output('metrics-trend', 'figure'),
         dash.dependencies.Output('region-map', 'figure'),
-        dash.dependencies.Output('top-countries', 'figure'),  
-        
+        dash.dependencies.Output('top-countries', 'figure'),
+        dash.dependencies.Output('forecast-plot', 'figure'),
         dash.dependencies.Output('header', 'style'),
         dash.dependencies.Output('main-container', 'style'),
         dash.dependencies.Output('rpc-card', 'style'),
@@ -285,10 +308,10 @@ app.layout = html.Div([
         dash.dependencies.Input('update-interval', 'n_intervals'),
         dash.dependencies.Input('light-theme-btn', 'n_clicks'),
         dash.dependencies.Input('dark-theme-btn', 'n_clicks'),
+        dash.dependencies.Input('download-report-btn', 'n_clicks')
     ]
 )
-
-def update_dashboard(n, light_theme_btn, dark_theme_btn):
+def update_dashboard(n_interval, light_clicks, dark_clicks, download_clicks):
     global previous_kpis, current_theme
     
     if dash_ctx.triggered_id:
@@ -297,26 +320,33 @@ def update_dashboard(n, light_theme_btn, dark_theme_btn):
         elif dash_ctx.triggered_id == 'dark-theme-btn':
             current_theme = 'dark'
     
-    theme = current_theme
-    
     if len(ad_data) == 0:
-        return ['$0', '0%', '0', 'N/A', 'N/A', 
-                go.Figure(), go.Figure(), go.Figure(), go.Figure(), go.Figure(),
-                color_schemes[theme], color_schemes[theme], color_schemes[theme], color_schemes[theme], color_schemes[theme], color_schemes[theme]]
+        empty_fig = go.Figure()
+        empty_fig.update_layout(
+            plot_bgcolor=color_schemes[current_theme]['plot_bg'],
+            paper_bgcolor=color_schemes[current_theme]['paper_bg']
+        )
+        return ['$0', '0%', '$0', 'N/A', '$0'] + [empty_fig] * 5 + [
+            {'backgroundColor': color_schemes[current_theme]['background'], 'color': color_schemes[current_theme]['text']},
+            {'backgroundColor': color_schemes[current_theme]['background'], 'color': color_schemes[current_theme]['text']},
+        ]
 
     df = pd.DataFrame(ad_data)
     
+    # Calculate KPIs
     rpc = f"${df['RPC'].mean():.2f}"
     avg_ctr = f"{df['CTR'].mean():.2f}%"
     avg_cpc = f"${df['CPC'].mean():.2f}"
     common_peak = df['Period'].mode()[0]
     avg_cpa = f"${df['CPA'].mean():.2f}"
 
+    # Format KPIs
     rpc_kpi = format_kpi_value(rpc, previous_kpis['rpc'], prefix='$')
     ctr_kpi = format_kpi_value(avg_ctr, previous_kpis['ctr'], suffix='%')
     cpc_kpi = format_kpi_value(avg_cpc, previous_kpis['cpc'], prefix='$')
     cpa_kpi = format_kpi_value(avg_cpa, previous_kpis['cpa'], prefix='$')
 
+    # Update previous KPIs
     previous_kpis = {
         'rpc': rpc,
         'ctr': avg_ctr,
@@ -324,148 +354,89 @@ def update_dashboard(n, light_theme_btn, dark_theme_btn):
         'cpa': avg_cpa
     }
 
-    
-    
-    def add_info_icon(fig, theme, info_text, x_pos=0.98, y_pos=0.98):
-        fig.add_annotation(
-            text="ⓘ",
-            xref="paper",
-            yref="paper",
-            x=x_pos,
-            y=y_pos,
-            showarrow=False,
-            font=dict(
-                size=16,
-                color=color_schemes[theme]['text']
-            ),
-            hovertext=info_text,
-            hoverlabel=dict(
-                bgcolor=color_schemes[theme]['card_bg'],
-                font_color=color_schemes[theme]['text']
-            )
-        )
+    # Create ROAS by Type plot
     roas_by_type = go.Figure(data=[
-        go.Bar(x=df.groupby('AdType')['ROAS'].sum().index, 
-               y=df.groupby('AdType')['ROAS'].sum().values,
-               marker_color=px.colors.qualitative.Pastel)
+        go.Bar(
+            x=df.groupby('AdType')['ROAS'].mean().index,
+            y=df.groupby('AdType')['ROAS'].mean().values,
+            marker_color=px.colors.qualitative.Pastel
+        )
     ])
-    roas_by_type.update_layout(
-        plot_bgcolor=color_schemes[theme]['plot_bg'],
-        paper_bgcolor=color_schemes[theme]['paper_bg'],
-        font_color=color_schemes[theme]['text'],
-        title="Average Return on Ad Spend (ROAS) by Ad Type",
-    )
-
-    add_info_icon(roas_by_type, theme,"ROAS shows how much money you make for every dollar spent on ads—the higher, the better!.")
     
-    metrics_trend = go.Figure()
-
-    metrics_trend.add_trace(
-        go.Scatter(
-            x=df.index,
-            y=df['ConversionRate'],
-            name='Conversion Rate',
-            mode='lines+markers',
-            line=dict(color=px.colors.qualitative.Pastel[0]),
-            hovertemplate="Entry: %{x}<br>Conversion Rate: %{y:.2f}%<extra></extra>"
-        )
+    roas_by_type.update_layout(
+        plot_bgcolor=color_schemes[current_theme]['plot_bg'],
+        paper_bgcolor=color_schemes[current_theme]['paper_bg'],
+        font_color=color_schemes[current_theme]['text'],
+        title="Average ROAS by Ad Type"
     )
 
-    metrics_trend.add_trace(
-        go.Scatter(
-            x=df.index,
-            y=df['BounceRate'],
-            name='Bounce Rate',
-            mode='lines+markers',
-            line=dict(color=px.colors.qualitative.Pastel[1]),
-            hovertemplate="Entry: %{x}<br>Bounce Rate: %{y:.2f}%<extra></extra>"
-        )
-    )
-
-    metrics_trend.update_layout(
-        plot_bgcolor=color_schemes[theme]['plot_bg'],
-        paper_bgcolor=color_schemes[theme]['paper_bg'],
-        font_color=color_schemes[theme]['text'],
-        title="Conversion and Bounce Rate Trends",
-        xaxis_title="Data Points",
-        yaxis_title="Rate (%)",
-        showlegend=True,
-        legend=dict(
-            yanchor="top",
-            y=0.99,
-            xanchor="left",
-            x=0.01
-        )
-    )
-
-    add_info_icon(
-        metrics_trend, 
-        theme,
-        "Shows conversion and bounce rate trends over sequential data points. Higher conversion and lower bounce rates indicate better performance."
-    )
- 
+    # Create CTR by Device plot
     ctr_by_device = go.Figure(data=[
         go.Pie(
             labels=df.groupby('Device')['CTR'].mean().index,
             values=df.groupby('Device')['CTR'].mean().values,
             marker_colors=px.colors.qualitative.Pastel,
-            textinfo='label+percent',
-            hovertemplate="Device: %{label}<br>CTR: %{value:.2f}%<extra></extra>"
+            textinfo='label+percent'
         )
     ])
 
     ctr_by_device.update_layout(
-        plot_bgcolor=color_schemes[theme]['plot_bg'],
-        paper_bgcolor=color_schemes[theme]['paper_bg'],
-        font_color=color_schemes[theme]['text'],
-        title="CTR by Device",
-        showlegend=True
+        plot_bgcolor=color_schemes[current_theme]['plot_bg'],
+        paper_bgcolor=color_schemes[current_theme]['paper_bg'],
+        font_color=color_schemes[current_theme]['text'],
+        title="CTR by Device"
     )
 
-    add_info_icon(
-        ctr_by_device,
-        theme,
-        "Shows Click-Through Rate distribution across different devices. Larger segments indicate higher CTR for that device type."
-    )
+    # Create Metrics Trend plot
+    metrics_trend = go.Figure()
+    metrics_trend.add_trace(go.Scatter(
+        x=df.index,
+        y=df['ConversionRate'],
+        name='Conversion Rate',
+        mode='lines+markers',
+        line=dict(color=px.colors.qualitative.Pastel[0])
+    ))
     
-    region_sales = df.groupby('Region')['Clicks'].sum().reset_index()
+    metrics_trend.add_trace(go.Scatter(
+        x=df.index,
+        y=df['BounceRate'],
+        name='Bounce Rate',
+        mode='lines+markers',
+        line=dict(color=px.colors.qualitative.Pastel[1])
+    ))
+
+    metrics_trend.update_layout(
+        plot_bgcolor=color_schemes[current_theme]['plot_bg'],
+        paper_bgcolor=color_schemes[current_theme]['paper_bg'],
+        font_color=color_schemes[current_theme]['text'],
+        title="Conversion and Bounce Rate Trends",
+        xaxis_title="Data Points",
+        yaxis_title="Rate (%)"
+    )
+
+    # Create Region Map
     region_map = px.choropleth(
-        region_sales,
+        df.groupby('Region')['Clicks'].sum().reset_index(),
         locations='Region',
         locationmode='country names',
         color='Clicks',
         color_continuous_scale='Viridis',
-        projection='natural earth',
-        hover_name='Region',
-        hover_data={'Clicks': ':,.0f'}
+        projection='natural earth'
     )
-    
+
     region_map.update_layout(
-    plot_bgcolor=color_schemes[theme]['plot_bg'],
-    paper_bgcolor=color_schemes[theme]['paper_bg'],
-    font_color=color_schemes[theme]['text'],
-    geo=dict(
-        showframe=False,
-        showcoastlines=True,
-        projection_type='equirectangular',
-        bgcolor=color_schemes[theme]['plot_bg'],
-        resolution=50,
-        showland=True,
-        landcolor='lightgray',
-        showcountries=True,
-        countrycolor='white'
-    ),
-
-    dragmode=False,
-    margin=dict(l=0, r=0, t=30, b=0),
-    hovermode='closest'
-    )
-    add_info_icon(
-        region_map,
-        theme,
-        "Shows which regions have the highest clicks. Hover over a region to see the number of clicks."
+        plot_bgcolor=color_schemes[current_theme]['plot_bg'],
+        paper_bgcolor=color_schemes[current_theme]['paper_bg'],
+        font_color=color_schemes[current_theme]['text'],
+        geo=dict(
+            showframe=False,
+            showcoastlines=True,
+            projection_type='equirectangular',
+            bgcolor=color_schemes[current_theme]['plot_bg']
+        )
     )
 
+    # Create Top Countries plot
     top_countries = go.Figure(data=[
         go.Bar(
             x=df.groupby('Region')['Clicks'].sum().nlargest(5).values,
@@ -476,26 +447,185 @@ def update_dashboard(n, light_theme_btn, dark_theme_btn):
     ])
 
     top_countries.update_layout(
-        plot_bgcolor=color_schemes[theme]['plot_bg'],
-        paper_bgcolor=color_schemes[theme]['paper_bg'],
-        font_color=color_schemes[theme]['text'],
+        plot_bgcolor=color_schemes[current_theme]['plot_bg'],
+        paper_bgcolor=color_schemes[current_theme]['paper_bg'],
+        font_color=color_schemes[current_theme]['text'],
         title="Top 5 Countries by Clicks",
-        xaxis_title="Clicks",
-        margin=dict(l=0, r=0, t=30, b=0),
         height=300
     )
 
+    # Create Forecast plot
+    forecast_data = pd.DataFrame({
+        'ds': pd.date_range(start='2024-01-01', periods=len(df), freq='D'),
+        'y': df['Revenue']
+    })
+    
+    model = Prophet(yearly_seasonality=True, weekly_seasonality=True)
+    model.fit(forecast_data)
+    
+    future_dates = model.make_future_dataframe(periods=30)
+    forecast = model.predict(future_dates)
+    
+    forecast_plot = go.Figure()
+    forecast_plot.add_trace(go.Scatter(
+        x=forecast['ds'][:len(df)],
+        y=df['Revenue'],
+        name='Historical Revenue',
+        mode='lines+markers'
+    ))
+    
+    forecast_plot.add_trace(go.Scatter(
+        x=forecast['ds'],
+        y=forecast['yhat'],
+        name='Forecast',
+        mode='lines',
+        line=dict(dash='dot')
+    ))
+    
+    forecast_plot.add_trace(go.Scatter(
+        x=forecast['ds'],
+        y=forecast['yhat_upper'],
+        fill=None,
+        mode='lines',
+        line_color='rgba(0,100,80,0.2)',
+        name='Upper Bound'
+    ))
+    
+    forecast_plot.add_trace(go.Scatter(
+        x=forecast['ds'],
+        y=forecast['yhat_lower'],
+        fill='tonexty',
+        mode='lines',
+        line_color='rgba(0,100,80,0.2)',
+        name='Lower Bound'
+    ))
+    
+    forecast_plot.update_layout(
+        plot_bgcolor=color_schemes[current_theme]['plot_bg'],
+        paper_bgcolor=color_schemes[current_theme]['paper_bg'],
+        font_color=color_schemes[current_theme]['text'],
+        title="Revenue Forecast (30 Days)"
+    )
+
+    # Return all outputs
     return [
-        rpc_kpi, ctr_kpi, cpc_kpi, common_peak, cpa_kpi, 
-        roas_by_type, ctr_by_device, metrics_trend, region_map, top_countries,
-        {'backgroundColor': color_schemes[theme]['background'], 'color': color_schemes[theme]['text']},
-        {'backgroundColor': color_schemes[theme]['background'], 'color': color_schemes[theme]['text']},
-        {'backgroundColor': color_schemes[theme]['card_bg'], 'color': color_schemes[theme]['card_text']},
-        {'backgroundColor': color_schemes[theme]['card_bg'], 'color': color_schemes[theme]['card_text']},
-        {'backgroundColor': color_schemes[theme]['card_bg'], 'color': color_schemes[theme]['card_text']},
-        {'backgroundColor': color_schemes[theme]['card_bg'], 'color': color_schemes[theme]['card_text']},
-        {'backgroundColor': color_schemes[theme]['card_bg'], 'color': color_schemes[theme]['card_text']}
+        rpc_kpi,
+        ctr_kpi,
+        cpc_kpi,
+        common_peak,
+        cpa_kpi,
+        roas_by_type,
+        ctr_by_device,
+        metrics_trend,
+        region_map,
+        top_countries,
+        forecast_plot,
+        {'backgroundColor': color_schemes[current_theme]['background'], 'color': color_schemes[current_theme]['text']},
+        {'backgroundColor': color_schemes[current_theme]['background'], 'color': color_schemes[current_theme]['text']},
+        glass_effect_css,
+        glass_effect_css,
+        glass_effect_css,
+        glass_effect_css,
+        glass_effect_css
     ]
+
+@app.callback(
+    dash.dependencies.Output('download-report', 'data'),
+    dash.dependencies.Input('download-report-btn', 'n_clicks'),
+    prevent_initial_call=True
+)
+
+def generate_report(n_clicks):
+    if n_clicks is None:
+        return dash.no_update
+    
+    df = pd.DataFrame(ad_data)
+    
+    # Generate PDF report
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer, pagesize=letter)
+    styles = getSampleStyleSheet()
+    story = []
+    
+    # Add title
+    title_style = ParagraphStyle(
+        'CustomTitle',
+        parent=styles['Heading1'],
+        fontSize=24,
+        spaceAfter=30
+    )
+    story.append(Paragraph("Ad Performance Report", title_style))
+    story.append(Spacer(1, 12))
+    
+    # Add summary statistics
+    metrics = [
+        ["Metric", "Value"],
+        ["Average Revenue", f"${df['Revenue'].mean():.2f}"],
+        ["Average CTR", f"{df['CTR'].mean():.2f}%"],
+        ["Average CPC", f"${df['CPC'].mean():.2f}"],
+        ["Average ROAS", f"{df['ROAS'].mean():.2f}"],
+        ["Total Conversions", f"{df['Conversions'].sum()}"],
+        ["Total Impressions", f"{df['Impressions'].sum()}"],
+        ["Total Clicks", f"{df['Clicks'].sum()}"],
+        ["Total Spend", f"${df['Spend'].sum():.2f}"]
+    ]
+    
+    table = Table(metrics)
+    table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+        ('FONTSIZE', (0, 0), (-1, 0), 14),
+        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
+        ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
+        ('FONTSIZE', (0, 1), (-1, -1), 12),
+        ('GRID', (0, 0), (-1, -1), 1, colors.black)
+    ]))
+    story.append(table)
+    story.append(Spacer(1, 12))
+    
+    # Add visualizations
+    fig, ax = plt.subplots(figsize=(6, 4))
+    sns.barplot(x='AdType', y='ROAS', data=df, ax=ax)
+    ax.set_title('Average ROAS by Ad Type')
+    plt.tight_layout()
+    imgdata = io.BytesIO()
+    fig.savefig(imgdata, format='png')
+    imgdata.seek(0)
+    story.append(Image(imgdata, width=400, height=300))
+    story.append(Spacer(1, 12))
+    
+    fig, ax = plt.subplots(figsize=(6, 4))
+    sns.barplot(x='Device', y='CTR', data=df, ax=ax)
+    ax.set_title('Average CTR by Device')
+    plt.tight_layout()
+    imgdata = io.BytesIO()
+    fig.savefig(imgdata, format='png')
+    imgdata.seek(0)
+    story.append(Image(imgdata, width=400, height=300))
+    story.append(Spacer(1, 12))
+    
+    fig, ax = plt.subplots(figsize=(6, 4))
+    sns.lineplot(x=df.index, y='Revenue', data=df, ax=ax)
+    ax.set_title('Revenue Over Time')
+    plt.tight_layout()
+    imgdata = io.BytesIO()
+    fig.savefig(imgdata, format='png')
+    imgdata.seek(0)
+    story.append(Image(imgdata, width=400, height=300))
+    story.append(Spacer(1, 12))
+    
+    # Build PDF
+    doc.build(story)
+    buffer.seek(0)
+    
+    return dcc.send_bytes(
+        buffer.getvalue(),
+        filename=f"ad_performance_report_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+    )
 
 if __name__ == '__main__':
     app.run_server(debug=True, port=8050)

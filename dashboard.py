@@ -1,3 +1,6 @@
+import matplotlib
+matplotlib.use('Agg')
+
 import dash
 from dash import dcc, html
 from dash import ctx as dash_ctx
@@ -248,6 +251,16 @@ app.layout = html.Div([
             
             html.Div([
                 html.Div([
+                    html.H4("Clicks by Region", className="text-center"),
+                    dcc.Graph(id='region-map')
+                ], className="col-md-8"),
+                html.Div([
+                    dcc.Graph(id='top-countries')
+                ], className="col-md-4")
+            ], className="row"),
+
+            html.Div([
+                html.Div([
                     html.H4("Revenue Forecast", className="text-center"),
                     dcc.Graph(id='forecast-plot')
                 ], className="col-md-12 mb-4"),
@@ -260,17 +273,9 @@ app.layout = html.Div([
                     ),
                     dcc.Download(id='download-report')
                 ], className="text-center mb-4")
-            ], className="row"),
-
-            html.Div([
-                html.Div([
-                    html.H4("Clicks by Region", className="text-center"),
-                    dcc.Graph(id='region-map')
-                ], className="col-md-8"),
-                html.Div([
-                    dcc.Graph(id='top-countries')
-                ], className="col-md-4")
             ], className="row")
+
+            
         ], className="col-md-12")
     ], className="container-fluid"),
 
@@ -331,20 +336,17 @@ def update_dashboard(n_interval, light_clicks, dark_clicks, download_clicks):
 
     df = pd.DataFrame(ad_data)
     
-    # Calculate KPIs
     rpc = f"${df['RPC'].mean():.2f}"
     avg_ctr = f"{df['CTR'].mean():.2f}%"
     avg_cpc = f"${df['CPC'].mean():.2f}"
     common_peak = df['Period'].mode()[0]
     avg_cpa = f"${df['CPA'].mean():.2f}"
 
-    # Format KPIs
     rpc_kpi = format_kpi_value(rpc, previous_kpis['rpc'], prefix='$')
     ctr_kpi = format_kpi_value(avg_ctr, previous_kpis['ctr'], suffix='%')
     cpc_kpi = format_kpi_value(avg_cpc, previous_kpis['cpc'], prefix='$')
     cpa_kpi = format_kpi_value(avg_cpa, previous_kpis['cpa'], prefix='$')
 
-    # Update previous KPIs
     previous_kpis = {
         'rpc': rpc,
         'ctr': avg_ctr,
@@ -352,7 +354,6 @@ def update_dashboard(n_interval, light_clicks, dark_clicks, download_clicks):
         'cpa': avg_cpa
     }
 
-    # Create ROAS by Type plot
     roas_by_type = go.Figure(data=[
         go.Bar(
             x=df.groupby('AdType')['ROAS'].mean().index,
@@ -368,7 +369,6 @@ def update_dashboard(n_interval, light_clicks, dark_clicks, download_clicks):
         title="Average ROAS by Ad Type"
     )
 
-    # Create CTR by Device plot
     ctr_by_device = go.Figure(data=[
         go.Pie(
             labels=df.groupby('Device')['CTR'].mean().index,
@@ -385,7 +385,6 @@ def update_dashboard(n_interval, light_clicks, dark_clicks, download_clicks):
         title="CTR by Device"
     )
 
-    # Create Metrics Trend plot
     metrics_trend = go.Figure()
     metrics_trend.add_trace(go.Scatter(
         x=df.index,
@@ -412,7 +411,6 @@ def update_dashboard(n_interval, light_clicks, dark_clicks, download_clicks):
         yaxis_title="Rate (%)"
     )
 
-    # Create Region Map
     region_map = px.choropleth(
         df.groupby('Region')['Clicks'].sum().reset_index(),
         locations='Region',
@@ -434,7 +432,6 @@ def update_dashboard(n_interval, light_clicks, dark_clicks, download_clicks):
         )
     )
 
-    # Create Top Countries plot
     top_countries = go.Figure(data=[
         go.Bar(
             x=df.groupby('Region')['Clicks'].sum().nlargest(5).values,
@@ -452,7 +449,6 @@ def update_dashboard(n_interval, light_clicks, dark_clicks, download_clicks):
         height=300
     )
 
-    # Create Forecast plot
     forecast_data = pd.DataFrame({
         'ds': pd.date_range(start='2024-01-01', periods=len(df), freq='D'),
         'y': df['Revenue']
@@ -507,7 +503,6 @@ def update_dashboard(n_interval, light_clicks, dark_clicks, download_clicks):
         title="Revenue Forecast (30 Days)"
     )
 
-    # Return all outputs
     return [
         rpc_kpi,
         ctr_kpi,
@@ -541,23 +536,35 @@ def generate_report(n_clicks):
     
     df = pd.DataFrame(ad_data)
     
-    # Generate PDF report
     buffer = io.BytesIO()
     doc = SimpleDocTemplate(buffer, pagesize=letter)
     styles = getSampleStyleSheet()
     story = []
     
-    # Add title
     title_style = ParagraphStyle(
         'CustomTitle',
         parent=styles['Heading1'],
         fontSize=24,
-        spaceAfter=30
+        spaceAfter=30,
+        textColor=colors.HexColor("#2E4053")
     )
     story.append(Paragraph("Ad Performance Report", title_style))
     story.append(Spacer(1, 12))
     
-    # Add summary statistics
+    last_updated = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    story.append(Paragraph(f"Last Updated: {last_updated}", styles['Normal']))
+    story.append(Spacer(1, 12))
+    
+    key_metrics_style = ParagraphStyle(
+        'KeyMetrics',
+        parent=styles['Heading2'],
+        fontSize=18,
+        spaceAfter=20,
+        textColor=colors.HexColor("#2874A6")
+    )
+    story.append(Paragraph("Key Metrics", key_metrics_style))
+    story.append(Spacer(1, 12))
+
     metrics = [
         ["Metric", "Value"],
         ["Average Revenue", f"${df['Revenue'].mean():.2f}"],
@@ -572,13 +579,13 @@ def generate_report(n_clicks):
     
     table = Table(metrics)
     table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+        ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1ABC9C")),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
         ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
         ('FONTSIZE', (0, 0), (-1, 0), 14),
         ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+        ('BACKGROUND', (0, 1), (-1, -1), colors.HexColor("#A9DFBF")),
         ('TEXTCOLOR', (0, 1), (-1, -1), colors.black),
         ('FONTNAME', (0, 1), (-1, -1), 'Helvetica'),
         ('FONTSIZE', (0, 1), (-1, -1), 12),
@@ -587,10 +594,29 @@ def generate_report(n_clicks):
     story.append(table)
     story.append(Spacer(1, 12))
     
-    # Add visualizations
+
+    def add_plot_to_story(df, x, y, title, story):
+        fig, ax = plt.subplots(figsize=(6, 4))
+        sns.barplot(x=x, y=y, data=df, ax=ax, palette="Greens_d")
+        ax.set_title(title, fontsize=14, color="#2E4053")
+        ax.set_xlabel(x, fontsize=12, color="#2E4053")
+        ax.set_ylabel(y, fontsize=12, color="#2E4053")
+        plt.tight_layout()
+        imgdata = io.BytesIO()
+        fig.savefig(imgdata, format='png')
+        imgdata.seek(0)
+        story.append(Image(imgdata, width=400, height=300))
+        story.append(Spacer(1, 12))
+    
+    add_plot_to_story(df, 'AdType', 'ROAS', 'Average ROAS by Ad Type', story)
+    add_plot_to_story(df, 'Device', 'CTR', 'Average CTR by Device', story)
+    add_plot_to_story(df, 'Region', 'Clicks', 'Clicks by Region', story)
+    
     fig, ax = plt.subplots(figsize=(6, 4))
-    sns.barplot(x='AdType', y='ROAS', data=df, ax=ax)
-    ax.set_title('Average ROAS by Ad Type')
+    sns.lineplot(x=df.index, y='Revenue', data=df, ax=ax, color="green")
+    ax.set_title('Revenue Forecast', fontsize=14, color="#2E4053")
+    ax.set_xlabel('Date', fontsize=12, color="#2E4053")
+    ax.set_ylabel('Revenue', fontsize=12, color="#2E4053")
     plt.tight_layout()
     imgdata = io.BytesIO()
     fig.savefig(imgdata, format='png')
@@ -598,27 +624,6 @@ def generate_report(n_clicks):
     story.append(Image(imgdata, width=400, height=300))
     story.append(Spacer(1, 12))
     
-    fig, ax = plt.subplots(figsize=(6, 4))
-    sns.barplot(x='Device', y='CTR', data=df, ax=ax)
-    ax.set_title('Average CTR by Device')
-    plt.tight_layout()
-    imgdata = io.BytesIO()
-    fig.savefig(imgdata, format='png')
-    imgdata.seek(0)
-    story.append(Image(imgdata, width=400, height=300))
-    story.append(Spacer(1, 12))
-    
-    fig, ax = plt.subplots(figsize=(6, 4))
-    sns.lineplot(x=df.index, y='Revenue', data=df, ax=ax)
-    ax.set_title('Revenue Over Time')
-    plt.tight_layout()
-    imgdata = io.BytesIO()
-    fig.savefig(imgdata, format='png')
-    imgdata.seek(0)
-    story.append(Image(imgdata, width=400, height=300))
-    story.append(Spacer(1, 12))
-    
-    # Build PDF
     doc.build(story)
     buffer.seek(0)
     
